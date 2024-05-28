@@ -19,6 +19,9 @@ class TransformerLayer(nn.Module):
         res = x
 
         x = nn.Dense(features=self.token_features)(x)
+        x = nn.relu(x)
+        x = nn.Dense(features=self.token_features)(x)
+
         x = nn.LayerNorm()(x + res)
 
         return x
@@ -28,7 +31,7 @@ class Transformer(nn.Module):
     num_heads: int = 8
     token_features: int = 16
     vocab_size: int = 10
-    num_layers: int = 6
+    num_layers: int = 3
 
     @nn.compact
     def __call__(self, inputs, mask=None):

@@ -17,10 +17,10 @@ from sequence_gym.vocab import VocabDescribe
 def main():
     rng_key = random.PRNGKey(42)
     vocab = VocabDescribe(10)
-    embedding_features = 16
-    sequence_length = 21
+    embedding_features = 32
+    sequence_length = 51
     num_heads = 8
-    batch_size = 32
+    batch_size = 128
 
     transformer = Transformer(num_heads=num_heads, token_features=embedding_features)
 
@@ -36,7 +36,9 @@ def main():
 
     network_params = network.init(param_key, dummy_batch.sequence)
 
-    optimizer = optax.adam(learning_rate=0.0001)
+    optimizer = optax.adam(
+        learning_rate=optax.warmup_cosine_decay_schedule(0.000001, 0.01, 1_000, 9_000)
+    )
     opt_state = optimizer.init(network_params)
 
     static_state = StaticState(network, optimizer, batch_size, sequence_length, vocab)
@@ -53,7 +55,7 @@ def main():
         if i % 100 == 99:
             print(f"{i}: {loss_value}")
 
-    np.save("losses", losses)
+    np.save("losses2", losses)
 
 
 def loss(network: Network, params, training_batch: TrainingSample):

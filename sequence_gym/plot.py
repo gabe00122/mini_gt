@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 
 
 def main():
-    losses = np.load("losses.npy")
+    losses = np.load("losses2.npy")
     plt.plot(losses)
     plt.show()
 
