@@ -15,6 +15,9 @@ class Network(nn.Module):
         token_embeddings = nn.Embed(
             num_embeddings=self.seq_length,
             features=self.embedding_features,
+            embedding_init=nn.initializers.variance_scaling(
+                self.embedding_features ** -(1 / 2), "fan_in", "normal", out_axis=0
+            ),
         )(inputs)
         embeddings = token_embeddings + self.position_embeddings
         return self.transformer(embeddings, mask)

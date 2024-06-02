@@ -40,7 +40,13 @@ def create_training_sample(rng_key: ArrayLike, vocab: VocabDescribe, batch_lengt
     length = random.randint(length_rng, (), 1, batch_length // 2)
 
     sequence = create_sequence_var(sequence_rng, vocab, length, batch_length)
-    train_point = random.randint(position_rng, (), length + 1, length * 2 + 1)
+    train_point = random.randint(position_rng, (), length + 1, length * 2)
+
+    roll_amount = random.randint(roll_rng, (), 1, batch_length - train_point)
+    sequence = jnp.roll(sequence, roll_amount)
+    sequence = sequence.at[roll_amount - 1].set(vocab.reverse_token)
+
+    train_point += roll_amount
 
     mask = create_mask(batch_length, train_point)
     return TrainingSample(

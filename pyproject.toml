@@ -10,6 +10,9 @@ python = "^3.12"
 jax = {extras = ["cpu"], version = "^0.4.28"}
 flax = "^0.8.3"
 matplotlib = "^3.9.0"
+orbax-checkpoint = "^0.5.14"
+pandas = "^2.2.2"
+pyarrow = "^16.1.0"
 
 
 [build-system]

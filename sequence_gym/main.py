@@ -1,17 +1,25 @@
+from pathlib import Path
 from typing import NamedTuple, Any
 from functools import partial
+import os
 
 import jax
 from jax import random, Array, numpy as jnp
 import optax
 from optax.losses import softmax_cross_entropy
 import numpy as np
+import orbax.checkpoint as ocp
 
-from sequence_gym.env import create_training_batch, create_training_sample, TrainingSample
+from sequence_gym.env import (
+    create_training_batch,
+    create_training_sample,
+    TrainingSample,
+)
 from sequence_gym.network import Network
 from sequence_gym.positional_embeddings import get_positional_embeddings
 from sequence_gym.transformer import Transformer
 from sequence_gym.vocab import VocabDescribe
+from sequence_gym.metrics import Metrics, PandasWritter
 
 
 def main():
@@ -22,13 +30,19 @@ def main():
     num_heads = 8
     batch_size = 128
 
-    transformer = Transformer(num_heads=num_heads, token_features=embedding_features)
+    transformer = Transformer(
+        num_heads=num_heads,
+        token_features=embedding_features,
+        num_layers=6,
+    )
 
     network = Network(
         transformer=transformer,
         seq_length=sequence_length,
         embedding_features=embedding_features,
-        position_embeddings=get_positional_embeddings(sequence_length, embedding_features)
+        position_embeddings=get_positional_embeddings(
+            sequence_length, embedding_features
+        ),
     )
 
     param_key, dummy_key, rng_key = random.split(rng_key, 3)
@@ -37,7 +51,7 @@ def main():
     network_params = network.init(param_key, dummy_batch.sequence)
 
     optimizer = optax.adam(
-        learning_rate=optax.warmup_cosine_decay_schedule(0.000001, 0.01, 1_000, 9_000)
+        learning_rate=optax.warmup_cosine_decay_schedule(0.000001, 0.005, 1_000, 9_000)
     )
     opt_state = optimizer.init(network_params)
 
@@ -45,24 +59,37 @@ def main():
     training_state = TrainingState(rng_key, network_params, opt_state)
 
     total_steps = 10_000
-    losses = np.zeros((total_steps,), dtype=np.float32)
+    writter = PandasWritter(Path("./metrics_maybe_fixup_large.parquet"))
 
     for i in range(total_steps):
+        if i == 0:
+            print("Compilation started")
+
         training_state, metrics = training_step(static_state, training_state)
-        loss_value = metrics.loss.item()
-        losses[i] = loss_value
+        writter.write(metrics)
+
+        if i == 0:
+            print("Compilation finished")
 
         if i % 100 == 99:
-            print(f"{i}: {loss_value}")
+            print(f"{i}: {metrics["loss"].item()}")
 
-    np.save("losses2", losses)
+    writter.flush()
+    save_model("models", training_state.params)
 
 
 def loss(network: Network, params, training_batch: TrainingSample):
     vec_network = jax.vmap(network.apply, in_axes=(None, 0, 0))
 
     logits = vec_network(params, training_batch.sequence, training_batch.mask)
-    return jnp.mean(softmax_cross_entropy(logits, training_batch.label))
+    mean_cross_entropy = jnp.mean(softmax_cross_entropy(logits, training_batch.label))
+
+    logits_indices = jnp.argmax(logits, axis=1)
+    label_indices = jnp.argmax(training_batch.label, axis=1)
+    percent_correct = jnp.mean(logits_indices == label_indices, dtype=jnp.float32)
+    metrics = {"percent_correct": percent_correct}
+
+    return mean_cross_entropy, metrics
 
 
 class StaticState(NamedTuple):
@@ -79,20 +106,22 @@ class TrainingState(NamedTuple):
     opt_state: Any
 
 
-class Metrics(NamedTuple):
-    loss: Array
-
-
 @partial(jax.jit, static_argnums=0)
-def training_step(static_state: StaticState, state: TrainingState) -> tuple[TrainingState, Metrics]:
+def training_step(
+    static_state: StaticState, state: TrainingState
+) -> tuple[TrainingState, Metrics]:
     rng_key = state.rng_key
     keys = random.split(rng_key, static_state.batch_size + 1)
     rng_key = keys[0]
     sample_keys = keys[1:]
 
-    sample = create_training_batch(sample_keys, static_state.vocab, static_state.seq_length)
+    sample = create_training_batch(
+        sample_keys, static_state.vocab, static_state.seq_length
+    )
 
-    loss_value, grad = jax.value_and_grad(loss, argnums=1)(static_state.network, state.params, sample)
+    (loss_value, metrics), grad = jax.value_and_grad(loss, argnums=1, has_aux=True)(
+        static_state.network, state.params, sample
+    )
     updates, opt_state = static_state.solver.update(grad, state.opt_state, state.params)
     params = optax.apply_updates(state.params, updates)
 
@@ -101,12 +130,32 @@ def training_step(static_state: StaticState, state: TrainingState) -> tuple[Trai
         params=params,
         opt_state=opt_state,
     )
-    metrics = Metrics(
-        loss=loss_value,
-    )
+
+    for path, leaf in jax.tree_util.tree_leaves_with_path(grad):
+        name = jax.tree_util.keystr(path)
+        metrics |= grad_stats(name, leaf)
+
+    metrics |= {
+        "loss": loss_value,
+    }
 
     return state, metrics
 
 
-if __name__ == '__main__':
+def grad_stats(name: str, leaf) -> Metrics:
+    leaf = jnp.array(leaf)
+    return {
+        name: jnp.linalg.norm(leaf),
+    }
+
+
+def save_model(file_name, params):
+    abs_parh = os.path.abspath(file_name)
+    path = ocp.test_utils.erase_and_create_empty(abs_parh)
+    ckptr = ocp.AsyncCheckpointer(ocp.StandardCheckpointHandler())
+    ckptr.save(path / "1", args=ocp.args.StandardSave(params))
+    ckptr.wait_until_finished()
+
+
+if __name__ == "__main__":
     main()
