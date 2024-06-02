@@ -2,9 +2,9 @@ import flax.linen as nn
 
 
 class TransformerLayer(nn.Module):
+    kernel_init: nn.initializers.Initializer
     num_heads: int = 8
     token_features: int = 16
-    kernel_init = nn.initializers.Initializer
 
     @nn.compact
     def __call__(self, inputs, mask=None):
