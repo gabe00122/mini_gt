@@ -10,21 +10,15 @@ def main():
     # xs = np.arange(10_000)
     # ys = schedule(xs) * 100
     df = pd.read_parquet(Path("metrics_maybe_fixup_large.parquet"))
+    df_old = pd.read_parquet(Path("metrics_glorot.parquet"))
+
+    dfs = [df, df_old]
+
     # df = df[["loss", "percent_correct",]]
-    for col in df.columns:
-        print(col)
-    df = df[
-        [
-            "['params']['transformer']['TransformerLayer_0']['MultiHeadDotProductAttention_0']['value']['kernel']",
-            "['params']['transformer']['TransformerLayer_1']['MultiHeadDotProductAttention_0']['value']['kernel']",
-            "['params']['transformer']['TransformerLayer_2']['MultiHeadDotProductAttention_0']['value']['kernel']",
-            "['params']['transformer']['TransformerLayer_3']['MultiHeadDotProductAttention_0']['value']['kernel']",
-            "['params']['transformer']['TransformerLayer_4']['MultiHeadDotProductAttention_0']['value']['kernel']",
-            "['params']['transformer']['TransformerLayer_5']['MultiHeadDotProductAttention_0']['value']['kernel']",
-        ]
-    ]
-    df = df.rolling(100).mean()
-    df.plot()
+    for d in dfs:
+        d = d[["percent_correct"]]
+        d = d.rolling(100).mean()
+        d.plot()
 
     # columns = [column for column in df.columns if column.endswith("std")]
     # df = df[columns]
