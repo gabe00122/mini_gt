@@ -37,14 +37,14 @@ def create_mask(length: int, position: Array):
 
 def create_training_sample(rng_key: ArrayLike, vocab: VocabDescribe, batch_length: int) -> TrainingSample:
     sequence_rng, length_rng, position_rng, roll_rng = random.split(rng_key, 4)
-    length = random.randint(length_rng, (), 1, batch_length // 2)
+    length = random.randint(length_rng, (), 1, batch_length // 2 + 1)
 
     sequence = create_sequence_var(sequence_rng, vocab, length, batch_length)
-    train_point = random.randint(position_rng, (), length + 1, length * 2)
+    train_point = random.randint(position_rng, (), length, length * 2)
 
-    roll_amount = random.randint(roll_rng, (), 1, batch_length - train_point)
+    roll_amount = 0#random.randint(roll_rng, (), 0, batch_length - length - 1)
     sequence = jnp.roll(sequence, roll_amount)
-    sequence = sequence.at[roll_amount - 1].set(vocab.reverse_token)
+    #sequence = sequence.at[roll_amount - 1].set(vocab.reverse_token)
 
     train_point += roll_amount
 
@@ -52,7 +52,7 @@ def create_training_sample(rng_key: ArrayLike, vocab: VocabDescribe, batch_lengt
     return TrainingSample(
         sequence=sequence,
         mask=mask,
-        label=nn.one_hot(sequence[train_point], vocab.total_tokens))
+        label=nn.one_hot(sequence[train_point+1], vocab.total_tokens))
 
 
 create_training_batch = jax.vmap(create_training_sample, in_axes=(0, None, None))
@@ -61,13 +61,13 @@ create_training_batch = jax.vmap(create_training_sample, in_axes=(0, None, None)
 def create_sequence_var(rng_key: ArrayLike, vocab: VocabDescribe, sequence_length: Array, buffer_size: int):
     seq = generate_sequence(rng_key, vocab, buffer_size)
     reverse_seq = reverse_sequence(seq)
-    reverse_seq = jnp.roll(reverse_seq, (sequence_length * 2) - buffer_size + 1)
+    reverse_seq = jnp.roll(reverse_seq, (sequence_length * 2) - buffer_size)
 
     indices = jnp.arange(0, buffer_size)
     output = jnp.where(indices < sequence_length, seq, reverse_seq)
-    output = output.at[sequence_length].set(vocab.reverse_token)
+    #output = output.at[sequence_length].set(vocab.reverse_token)
 
     # optional
-    output = jnp.where(indices >= sequence_length * 2 + 1, -1, output)
+    output = jnp.where(indices >= sequence_length * 2, 0, output)
 
     return output

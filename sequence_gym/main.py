@@ -26,9 +26,9 @@ def main():
     rng_key = random.PRNGKey(42)
     vocab = VocabDescribe(10)
     embedding_features = 32
-    sequence_length = 51
+    sequence_length = 50
     num_heads = 8
-    batch_size = 128
+    batch_size = 64
 
     transformer = Transformer(
         num_heads=num_heads,
