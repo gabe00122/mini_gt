@@ -19,7 +19,7 @@ from sequence_gym.network import Network
 from sequence_gym.positional_embeddings import get_positional_embeddings
 from sequence_gym.transformer import Transformer
 from sequence_gym.vocab import VocabDescribe
-from sequence_gym.metrics import Metrics, PandasWritter
+from sequence_gym.metrics import Metrics, PandasWriter, MetricsBuffer, create_metrics_buffer, append_buffer
 
 
 def main():
@@ -51,7 +51,7 @@ def main():
     network_params = network.init(param_key, dummy_batch.sequence)
 
     optimizer = optax.adam(
-        learning_rate=optax.warmup_cosine_decay_schedule(0.000001, 0.005, 1_000, 9_000)
+        learning_rate=optax.warmup_cosine_decay_schedule(0.0025/2, 0.0025, 1_000, 9_000)
     )
     opt_state = optimizer.init(network_params)
 
@@ -59,20 +59,21 @@ def main():
     training_state = TrainingState(rng_key, network_params, opt_state)
 
     total_steps = 10_000
-    writter = PandasWritter(Path("./metrics_maybe_fixup_large.parquet"))
+    writter = PandasWriter(Path("./metrics_glort.parquet"))
 
-    for i in range(total_steps):
+    for i in range(total_steps // 500):
         if i == 0:
             print("Compilation started")
 
-        training_state, metrics = training_step(static_state, training_state)
+        #training_state, metrics = training_step(static_state, training_state)
+        training_state, metrics = train_loop(static_state, training_state)
         writter.write(metrics)
 
-        if i == 0:
-            print("Compilation finished")
+        #if i == 0:
+        print("Compilation finished")
 
-        if i % 100 == 99:
-            print(f"{i}: {metrics["loss"].item()}")
+        #if i % 100 == 99:
+        print(f"{i}: {metrics.values["loss"][metrics.length - 1].item()}")
 
     writter.flush()
     save_model("models", training_state.params)
@@ -106,7 +107,7 @@ class TrainingState(NamedTuple):
     opt_state: Any
 
 
-@partial(jax.jit, static_argnums=0)
+#@partial(jax.jit, static_argnums=0)
 def training_step(
     static_state: StaticState, state: TrainingState
 ) -> tuple[TrainingState, Metrics]:
@@ -131,15 +132,32 @@ def training_step(
         opt_state=opt_state,
     )
 
-    for path, leaf in jax.tree_util.tree_leaves_with_path(grad):
-        name = jax.tree_util.keystr(path)
-        metrics |= grad_stats(name, leaf)
+    # for path, leaf in jax.tree_util.tree_leaves_with_path(grad):
+    #     name = jax.tree_util.keystr(path)
+    #     metrics |= grad_stats(name, leaf)
 
     metrics |= {
         "loss": loss_value,
     }
 
     return state, metrics
+
+
+@partial(jax.jit, static_argnums=0)
+def train_loop(static_state: StaticState, state: TrainingState) -> tuple[TrainingState, MetricsBuffer]:
+    loop_count = 500
+    state, metrics = training_step(static_state, state)
+    metrics_buffer = create_metrics_buffer(metrics, loop_count)
+
+    def loop_body(i, curry) -> tuple[TrainingState, MetricsBuffer]:
+        state, metrics_buffer = curry
+
+        state, metrics = training_step(static_state, state)
+        metrics_buffer = append_buffer(metrics_buffer, metrics)
+
+        return state, metrics_buffer
+
+    return jax.lax.fori_loop(1, loop_count, loop_body, (state, metrics_buffer))
 
 
 def grad_stats(name: str, leaf) -> Metrics:

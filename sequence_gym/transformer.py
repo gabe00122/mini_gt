@@ -11,6 +11,7 @@ class TransformerLayer(nn.Module):
         x = inputs
         res = x
 
+        x = nn.LayerNorm()(x)
         x = nn.MultiHeadDotProductAttention(
             num_heads=self.num_heads,
             qkv_features=self.token_features,
@@ -20,6 +21,7 @@ class TransformerLayer(nn.Module):
         x += res
         res = x
 
+        x = nn.LayerNorm()(x)
         x = nn.Dense(
             features=self.token_features,
             kernel_init=self.kernel_init,
@@ -65,7 +67,7 @@ class Transformer(nn.Module):
         x = nn.DenseGeneral(
             features=self.vocab_size,
             axis=(0, 1),
-            kernel_init=nn.initializers.glorot_normal(),
+            kernel_init=kernel_init,
         )(x)
 
         return x
